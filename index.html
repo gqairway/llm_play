@@ -41,6 +41,9 @@
             .text-removed {
                 @apply bg-red-100 text-red-800 line-through rounded px-1;
             }
+            .text-unchanged {
+                @apply bg-transparent;
+            }
         }
     </style>
 </head>
@@ -162,13 +165,13 @@
             <div id="split" class="tab-content hidden p-4 bg-gray-50 rounded-lg mb-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="max-h-[600px] overflow-y-auto p-4 bg-white rounded-lg shadow-sm">
-                        <h3 class="text-lg font-medium mb-4 text-primary">原始文档</h3>
+                        <h3 class="text-lg font-medium mb-4 text-primary">原始文档 <span class="text-sm font-normal text-gray-500">(红色表示删除内容)</span></h3>
                         <div id="originalDoc" class="prose max-w-none">
                             <!-- 原始文档内容 -->
                         </div>
                     </div>
                     <div class="max-h-[600px] overflow-y-auto p-4 bg-white rounded-lg shadow-sm">
-                        <h3 class="text-lg font-medium mb-4 text-secondary">修改后的文档</h3>
+                        <h3 class="text-lg font-medium mb-4 text-secondary">修改后的文档 <span class="text-sm font-normal text-gray-500">(绿色表示新增内容)</span></h3>
                         <div id="modifiedDoc" class="prose max-w-none">
                             <!-- 修改后的文档内容 -->
                         </div>
@@ -417,21 +420,51 @@
                         }
                     });
                     
-                    // 生成分屏视图
+                    // 生成分屏视图 - 带差异高亮
                     originalDoc.innerHTML = '';
-                    doc1Content.split('\n\n').forEach(paragraph => {
+                    modifiedDoc.innerHTML = '';
+                    
+                    // 构建原始文档（带删除内容高亮）
+                    const originalContainer = document.createElement('div');
+                    // 构建修改后文档（带新增内容高亮）
+                    const modifiedContainer = document.createElement('div');
+                    
+                    diff.forEach(part => {
+                        // 原始文档只显示删除和未修改的内容
+                        if (!part.added) {
+                            const span = document.createElement('span');
+                            span.className = part.removed ? 'text-removed' : 'text-unchanged';
+                            span.textContent = part.value;
+                            originalContainer.appendChild(span);
+                        }
+                        
+                        // 修改后文档只显示新增和未修改的内容
+                        if (!part.removed) {
+                            const span = document.createElement('span');
+                            span.className = part.added ? 'text-added' : 'text-unchanged';
+                            span.textContent = part.value;
+                            modifiedContainer.appendChild(span);
+                        }
+                    });
+                    
+                    // 按段落分割原始文档
+                    const originalParagraphs = originalContainer.innerHTML.split('\n\n');
+                    originalDoc.innerHTML = '';
+                    originalParagraphs.forEach(paragraph => {
                         if (paragraph.trim()) {
                             const p = document.createElement('p');
-                            p.textContent = paragraph;
+                            p.innerHTML = paragraph;
                             originalDoc.appendChild(p);
                         }
                     });
                     
+                    // 按段落分割修改后文档
+                    const modifiedParagraphs = modifiedContainer.innerHTML.split('\n\n');
                     modifiedDoc.innerHTML = '';
-                    doc2Content.split('\n\n').forEach(paragraph => {
+                    modifiedParagraphs.forEach(paragraph => {
                         if (paragraph.trim()) {
                             const p = document.createElement('p');
-                            p.textContent = paragraph;
+                            p.innerHTML = paragraph;
                             modifiedDoc.appendChild(p);
                         }
                     });
