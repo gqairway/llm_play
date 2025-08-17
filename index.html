@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word文档差异比较工具</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- 引入mammoth.js (docx解析库) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- 引入文本差异比较库 -->
+    <script src="https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js"></script>
+    
+    <!-- 配置Tailwind自定义颜色和字体 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        danger: '#EF4444',
+                        neutral: '#64748B',
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- 自定义工具类 -->
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .text-added {
+                @apply bg-green-100 text-green-800 rounded px-1;
+            }
+            .text-removed {
+                @apply bg-red-100 text-red-800 line-through rounded px-1;
+            }
+        }
+    </style>
+</head>
+<body class="font-inter bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+    <!-- 页面头部 -->
+    <header class="bg-white shadow-md">
+        <div class="container mx-auto px-4 py-6">
+            <h1 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-primary flex items-center">
+                <i class="fa fa-file-text-o mr-3"></i>
+                Word文档差异比较工具
+            </h1>
+            <p class="text-neutral mt-2">上传两个Word文档（.docx），快速比较它们的内容差异</p>
+        </div>
+    </header>
+
+    <!-- 主要内容区 -->
+    <main class="flex-grow container mx-auto px-4 py-8">
+        <!-- 文件上传区域 -->
+        <section class="bg-white rounded-xl shadow-lg p-6 mb-8 transform transition-all duration-300 hover:shadow-xl">
+            <h2 class="text-xl font-semibold mb-6 flex items-center">
+                <i class="fa fa-upload text-primary mr-2"></i>上传文档
+            </h2>
+            
+            <div class="grid md:grid-cols-2 gap-6">
+                <!-- 第一个文件上传 -->
+                <div class="file-upload">
+                    <label for="file1" class="block text-sm font-medium text-neutral mb-2">原始文档</label>
+                    <div class="flex items-center justify-center w-full">
+                        <label for="file1" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-all">
+                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                <i class="fa fa-file-word-o text-3xl text-primary mb-2"></i>
+                                <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">点击上传</span> 或拖放文件</p>
+                                <p class="text-xs text-gray-500">支持 .docx 格式</p>
+                            </div>
+                            <input id="file1" type="file" class="hidden" accept=".docx" />
+                            <div id="file1Name" class="hidden mt-2 text-sm text-gray-600"></div>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- 第二个文件上传 -->
+                <div class="file-upload">
+                    <label for="file2" class="block text-sm font-medium text-neutral mb-2">修改后的文档</label>
+                    <div class="flex items-center justify-center w-full">
+                        <label for="file2" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-all">
+                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                <i class="fa fa-file-word-o text-3xl text-primary mb-2"></i>
+                                <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">点击上传</span> 或拖放文件</p>
+                                <p class="text-xs text-gray-500">支持 .docx 格式</p>
+                            </div>
+                            <input id="file2" type="file" class="hidden" accept=".docx" />
+                            <div id="file2Name" class="hidden mt-2 text-sm text-gray-600"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 比较按钮 -->
+            <div class="mt-8 text-center">
+                <button id="compareBtn" class="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-8 rounded-lg shadow transition-all duration-300 flex items-center justify-center mx-auto disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <i class="fa fa-exchange mr-2"></i>
+                    比较文档差异
+                </button>
+            </div>
+        </section>
+        
+        <!-- 加载状态 -->
+        <div id="loadingSection" class="hidden bg-white rounded-xl shadow-lg p-8 mb-8 text-center">
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
+            <p class="text-lg text-neutral">正在解析文档并比较差异，请稍候...</p>
+        </div>
+        
+        <!-- 结果展示区域 -->
+        <section id="resultsSection" class="hidden bg-white rounded-xl shadow-lg p-6 mb-8 overflow-hidden">
+            <h2 class="text-xl font-semibold mb-6 flex items-center">
+                <i class="fa fa-bar-chart text-primary mr-2"></i>比较结果
+            </h2>
+            
+            <!-- 统计信息 -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <p class="text-sm text-neutral mb-1">文档1字数</p>
+                    <p id="wordCount1" class="text-2xl font-bold text-primary">0</p>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <p class="text-sm text-neutral mb-1">文档2字数</p>
+                    <p id="wordCount2" class="text-2xl font-bold text-secondary">0</p>
+                </div>
+                <div class="bg-purple-50 p-4 rounded-lg">
+                    <p class="text-sm text-neutral mb-1">差异处数量</p>
+                    <p id="diffCount" class="text-2xl font-bold text-purple-600">0</p>
+                </div>
+            </div>
+            
+            <!-- 差异展示选项卡 -->
+            <div class="border-b border-gray-200 mb-6">
+                <ul class="flex flex-wrap -mb-px" id="diffTabs" role="tablist">
+                    <li class="mr-2" role="presentation">
+                        <button class="inline-block p-4 border-b-2 border-primary text-primary rounded-t-lg" id="unified-tab" data-tabs-target="#unified" type="button" role="tab" aria-selected="true">
+                            合并视图
+                        </button>
+                    </li>
+                    <li class="mr-2" role="presentation">
+                        <button class="inline-block p-4 border-b-2 border-transparent hover:text-gray-600 hover:border-gray-300 rounded-t-lg" id="split-tab" data-tabs-target="#split" type="button" role="tab" aria-selected="false">
+                            分屏视图
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            
+            <!-- 合并视图 -->
+            <div id="unified" class="tab-content p-4 bg-gray-50 rounded-lg mb-6 max-h-[600px] overflow-y-auto">
+                <div id="unifiedDiff" class="prose max-w-none">
+                    <!-- 差异内容将在这里显示 -->
+                </div>
+            </div>
+            
+            <!-- 分屏视图 -->
+            <div id="split" class="tab-content hidden p-4 bg-gray-50 rounded-lg mb-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="max-h-[600px] overflow-y-auto p-4 bg-white rounded-lg shadow-sm">
+                        <h3 class="text-lg font-medium mb-4 text-primary">原始文档</h3>
+                        <div id="originalDoc" class="prose max-w-none">
+                            <!-- 原始文档内容 -->
+                        </div>
+                    </div>
+                    <div class="max-h-[600px] overflow-y-auto p-4 bg-white rounded-lg shadow-sm">
+                        <h3 class="text-lg font-medium mb-4 text-secondary">修改后的文档</h3>
+                        <div id="modifiedDoc" class="prose max-w-none">
+                            <!-- 修改后的文档内容 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 重新比较按钮 -->
+            <div class="text-center mt-6">
+                <button id="resetBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-6 rounded-lg shadow transition-all duration-300">
+                    <i class="fa fa-refresh mr-2"></i>
+                    重新上传比较
+                </button>
+            </div>
+        </section>
+        
+        <!-- 错误提示区域 -->
+        <div id="errorSection" class="hidden bg-red-50 border border-red-200 rounded-xl p-6 mb-8">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fa fa-exclamation-circle text-danger text-xl"></i>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-medium text-red-800">操作失败</h3>
+                    <div class="mt-2 text-sm text-red-700">
+                        <p id="errorMessage">请上传有效的.docx文件</p>
+                    </div>
+                    <div class="mt-3">
+                        <button id="showErrorDetails" class="text-sm text-red-600 hover:underline">
+                            显示详细错误信息
+                        </button>
+                        <div id="errorDetails" class="mt-2 hidden p-3 bg-red-100 rounded text-xs"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-gray-800 text-white py-6">
+        <div class="container mx-auto px-4 text-center">
+            <p>Word文档差异比较工具 &copy; 2023</p>
+            <p class="text-gray-400 text-sm mt-2">本工具在浏览器中处理您的文件，不会上传到服务器</p>
+        </div>
+    </footer>
+
+    <script>
+        // 全局变量存储文档内容
+        let doc1Content = null;
+        let doc2Content = null;
+        let file1 = null;
+        let file2 = null;
+        let lastErrorDetails = '';
+        
+        // DOM元素
+        const file1Input = document.getElementById('file1');
+        const file2Input = document.getElementById('file2');
+        const file1Name = document.getElementById('file1Name');
+        const file2Name = document.getElementById('file2Name');
+        const compareBtn = document.getElementById('compareBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const loadingSection = document.getElementById('loadingSection');
+        const resultsSection = document.getElementById('resultsSection');
+        const errorSection = document.getElementById('errorSection');
+        const errorMessage = document.getElementById('errorMessage');
+        const errorDetails = document.getElementById('errorDetails');
+        const showErrorDetails = document.getElementById('showErrorDetails');
+        const unifiedDiff = document.getElementById('unifiedDiff');
+        const originalDoc = document.getElementById('originalDoc');
+        const modifiedDoc = document.getElementById('modifiedDoc');
+        const wordCount1 = document.getElementById('wordCount1');
+        const wordCount2 = document.getElementById('wordCount2');
+        const diffCount = document.getElementById('diffCount');
+        const unifiedTab = document.getElementById('unified-tab');
+        const splitTab = document.getElementById('split-tab');
+        const unifiedView = document.getElementById('unified');
+        const splitView = document.getElementById('split');
+        
+        // 检查是否可以启用比较按钮
+        function checkFilesSelected() {
+            compareBtn.disabled = !(file1 && file2);
+        }
+        
+        // 显示错误信息
+        function showError(message, details = '') {
+            errorMessage.textContent = message;
+            lastErrorDetails = details;
+            
+            if (details) {
+                errorDetails.textContent = details;
+                showErrorDetails.classList.remove('hidden');
+            } else {
+                showErrorDetails.classList.add('hidden');
+                errorDetails.classList.add('hidden');
+            }
+            
+            errorSection.classList.remove('hidden');
+        }
+        
+        // 验证文件是否为docx格式
+        function isDocxFile(file) {
+            // 主要通过文件扩展名验证
+            const fileName = file.name.toLowerCase();
+            return fileName.endsWith('.docx');
+        }
+        
+        // 使用mammoth.js解析docx文件
+        async function parseDocxWithMammoth(file) {
+            try {
+                // 读取文件内容
+                const arrayBuffer = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsArrayBuffer(file);
+                });
+                
+                // 使用mammoth提取文本
+                const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+                return result.value; // 提取的文本内容
+            } catch (error) {
+                console.error('Mammoth解析文档失败:', error);
+                throw new Error(`Mammoth解析错误: ${error.message || '未知错误'}`);
+            }
+        }
+        
+        // 处理文件上传
+        async function handleFileUpload(input, fileNameElement, isFirstFile) {
+            if (input.files.length === 0) return;
+            
+            const file = input.files[0];
+            
+            // 验证文件是否为docx
+            if (!isDocxFile(file)) {
+                showError('请上传.docx格式的Word文档');
+                input.value = '';
+                return;
+            }
+            
+            // 显示文件名
+            fileNameElement.textContent = file.name;
+            fileNameElement.classList.remove('hidden');
+            
+            // 显示加载状态
+            loadingSection.classList.remove('hidden');
+            errorSection.classList.add('hidden');
+            
+            try {
+                // 使用mammoth解析文档
+                const content = await parseDocxWithMammoth(file);
+                
+                if (!content.trim()) {
+                    throw new Error('文档内容为空或无法提取文本');
+                }
+                
+                // 隐藏加载状态
+                loadingSection.classList.add('hidden');
+                
+                // 存储文档内容
+                if (isFirstFile) {
+                    doc1Content = content;
+                    file1 = file;
+                } else {
+                    doc2Content = content;
+                    file2 = file;
+                }
+                
+                checkFilesSelected();
+                
+            } catch (error) {
+                console.error('处理文件时出错:', error);
+                loadingSection.classList.add('hidden');
+                showError('解析文档失败，请确保上传的是有效的.docx文件', error.message);
+                
+                // 重置输入
+                input.value = '';
+                fileNameElement.classList.add('hidden');
+                if (isFirstFile) {
+                    doc1Content = null;
+                    file1 = null;
+                } else {
+                    doc2Content = null;
+                    file2 = null;
+                }
+                checkFilesSelected();
+            }
+        }
+        
+        // 计算字数
+        function countWords(text) {
+            return text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+        }
+        
+        // 比较文档差异并显示
+        function compareDocuments() {
+            if (!doc1Content || !doc2Content) return;
+            
+            // 显示加载状态
+            loadingSection.classList.remove('hidden');
+            resultsSection.classList.add('hidden');
+            
+            // 延迟执行，让加载动画有时间显示
+            setTimeout(() => {
+                try {
+                    // 计算字数
+                    const count1 = countWords(doc1Content);
+                    const count2 = countWords(doc2Content);
+                    wordCount1.textContent = count1;
+                    wordCount2.textContent = count2;
+                    
+                    // 比较文本差异
+                    const diff = Diff.diffWordsWithSpace(doc1Content, doc2Content);
+                    
+                    // 统计差异数量
+                    let diffs = 0;
+                    diff.forEach(part => {
+                        if (part.added || part.removed) {
+                            diffs++;
+                        }
+                    });
+                    diffCount.textContent = diffs;
+                    
+                    // 生成合并视图的差异展示
+                    unifiedDiff.innerHTML = '';
+                    const unifiedContainer = document.createElement('div');
+                    
+                    diff.forEach(part => {
+                        const span = document.createElement('span');
+                        if (part.added) {
+                            span.className = 'text-added';
+                        } else if (part.removed) {
+                            span.className = 'text-removed';
+                        }
+                        span.textContent = part.value;
+                        unifiedContainer.appendChild(span);
+                    });
+                    
+                    // 按段落分割显示
+                    const paragraphs = unifiedContainer.innerHTML.split('\n\n');
+                    unifiedDiff.innerHTML = '';
+                    paragraphs.forEach(paragraph => {
+                        if (paragraph.trim()) {
+                            const p = document.createElement('p');
+                            p.innerHTML = paragraph;
+                            unifiedDiff.appendChild(p);
+                        }
+                    });
+                    
+                    // 生成分屏视图
+                    originalDoc.innerHTML = '';
+                    doc1Content.split('\n\n').forEach(paragraph => {
+                        if (paragraph.trim()) {
+                            const p = document.createElement('p');
+                            p.textContent = paragraph;
+                            originalDoc.appendChild(p);
+                        }
+                    });
+                    
+                    modifiedDoc.innerHTML = '';
+                    doc2Content.split('\n\n').forEach(paragraph => {
+                        if (paragraph.trim()) {
+                            const p = document.createElement('p');
+                            p.textContent = paragraph;
+                            modifiedDoc.appendChild(p);
+                        }
+                    });
+                    
+                    // 隐藏加载状态，显示结果
+                    loadingSection.classList.add('hidden');
+                    resultsSection.classList.remove('hidden');
+                    
+                } catch (error) {
+                    console.error('比较文档失败:', error);
+                    loadingSection.classList.add('hidden');
+                    showError('比较文档时发生错误，请重试', error.message);
+                }
+            }, 500);
+        }
+        
+        // 重置所有状态
+        function resetAll() {
+            file1Input.value = '';
+            file2Input.value = '';
+            file1Name.classList.add('hidden');
+            file2Name.classList.add('hidden');
+            doc1Content = null;
+            doc2Content = null;
+            file1 = null;
+            file2 = null;
+            compareBtn.disabled = true;
+            resultsSection.classList.add('hidden');
+            errorSection.classList.add('hidden');
+        }
+        
+        // 事件监听
+        file1Input.addEventListener('change', () => {
+            handleFileUpload(file1Input, file1Name, true);
+        });
+        
+        file2Input.addEventListener('change', () => {
+            handleFileUpload(file2Input, file2Name, false);
+        });
+        
+        compareBtn.addEventListener('click', compareDocuments);
+        resetBtn.addEventListener('click', resetAll);
+        
+        // 错误详情显示/隐藏
+        showErrorDetails.addEventListener('click', () => {
+            errorDetails.classList.toggle('hidden');
+        });
+        
+        // 选项卡切换
+        unifiedTab.addEventListener('click', () => {
+            unifiedTab.classList.add('border-primary', 'text-primary');
+            unifiedTab.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+            splitTab.classList.remove('border-primary', 'text-primary');
+            splitTab.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+            unifiedView.classList.remove('hidden');
+            splitView.classList.add('hidden');
+        });
+        
+        splitTab.addEventListener('click', () => {
+            splitTab.classList.add('border-primary', 'text-primary');
+            splitTab.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+            unifiedTab.classList.remove('border-primary', 'text-primary');
+            unifiedTab.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+            splitView.classList.remove('hidden');
+            unifiedView.classList.add('hidden');
+        });
+        
+        // 拖放功能
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            [file1Input.parentElement, file2Input.parentElement].forEach(elem => {
+                elem.addEventListener(eventName, preventDefaults, false);
+            });
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            [file1Input.parentElement, file2Input.parentElement].forEach(elem => {
+                elem.addEventListener(eventName, highlight, false);
+            });
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            [file1Input.parentElement, file2Input.parentElement].forEach(elem => {
+                elem.addEventListener(eventName, unhighlight, false);
+            });
+        });
+        
+        function highlight() {
+            this.classList.add('border-primary', 'bg-blue-50');
+        }
+        
+        function unhighlight() {
+            this.classList.remove('border-primary', 'bg-blue-50');
+        }
+        
+        // 处理拖放文件
+        file1Input.parentElement.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const file = dt.files[0];
+            if (file) {
+                // 模拟文件输入
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                file1Input.files = dataTransfer.files;
+                handleFileUpload(file1Input, file1Name, true);
+            }
+        });
+        
+        file2Input.parentElement.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const file = dt.files[0];
+            if (file) {
+                // 模拟文件输入
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                file2Input.files = dataTransfer.files;
+                handleFileUpload(file2Input, file2Name, false);
+            }
+        });
+    </script>
+</body>
+</html>
